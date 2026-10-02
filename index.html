@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#11122a" />
+<meta name="description" content="A daily picture, stirred by hidden whirlpools. Find each eye and untwist it." />
+<meta property="og:title" content="UNSTIR — today's picture is stirred" />
+<meta property="og:description" content="Find each whirlpool's eye. Circle your thumb. Unstir the picture in as few twists as you can." />
+<title>UNSTIR</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%2311122a'/%3E%3Cpath d='M32 32m-4 0a4 4 0 1 0 8 0a8 8 0 1 0 -16 0a12 12 0 1 0 24 0a16 16 0 1 0 -32 0' fill='none' stroke='%23ffc94a' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <button class="icon" id="btn-help" aria-label="How to play" data-testid="help">?</button>
+    <div class="brand">
+      <div class="logo" aria-label="UNSTIR"><span>UN</span>STIR</div>
+      <div class="sub" data-testid="sub"></div>
+    </div>
+    <button class="icon" id="btn-stats" aria-label="Stats" data-testid="stats-btn">
+      <svg viewBox="0 0 24 24" width="20" height="20"><path d="M5 20V11M12 20V5M19 20v-6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+    </button>
+  </header>
+  <div class="banner hidden" data-testid="challenge-banner"></div>
+  <div class="play">
+  <main class="stage">
+    <div class="frame" id="frame">
+      <canvas id="gl"></canvas>
+      <canvas id="ov" data-testid="board"></canvas>
+      <div class="title-card hidden" data-testid="title-card"><small></small><b></b></div>
+    </div>
+  </main>
+  <section class="tracker">
+    <div class="pips" data-testid="pips"></div>
+    <div class="count" data-testid="count"></div>
+  </section>
+  <div class="toast" data-testid="toast"></div>
+  <p class="caption" data-testid="caption"></p>
+  <div class="cta hidden" data-testid="cta-results"><button class="btn primary" id="btn-results">See results</button></div>
+  </div>
+  <footer class="tagline" data-testid="tagline">A new stirred picture every midnight</footer>
+
+  <div class="scrim hidden" id="scrim"></div>
+  <section class="sheet" id="sheet-results" data-testid="results" aria-hidden="true"></section>
+  <section class="sheet" id="sheet-stats" data-testid="stats" aria-hidden="true"></section>
+  <section class="sheet" id="sheet-help" data-testid="help-sheet" aria-hidden="true"></section>
+  <section class="sheet" id="sheet-archive" data-testid="archive" aria-hidden="true"></section>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

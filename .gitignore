@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-single/
+shots/*.mp4
+# Generated test/audit JSON reports
+shots/*.json
+.env
+.env.*
+!.env.example
