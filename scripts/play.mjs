@@ -58,11 +58,11 @@ async function stir(P, eye, r, turn, { jitter = 2, onMid } = {}) {
 }
 const plan = (P) => P.page.evaluate(() => {
   const U = window.__unstir; const st = U.stack; const p = U.puzzle;
-  // lockable = no later twist overlaps
-  const lock = st.map((t, i) => st.slice(i + 1).every((u) => Math.hypot(t.x - u.x, t.y - u.y) >= t.r + u.r));
-  const fwd = (t, x, y) => { const dx = x - t.x, dy = y - t.y, d = Math.hypot(dx, dy); if (d >= t.r) return [x, y]; const a = t.s * (1 - d / t.r) ** 2; return [t.x + dx * Math.cos(a) - dy * Math.sin(a), t.y + dx * Math.sin(a) + dy * Math.cos(a)]; };
-  const eyes = st.map((t, i) => { let q = [t.x, t.y]; for (let j = i + 1; j < st.length; j++) q = fwd(st[j], q[0], q[1]); return q; });
-  return { st, lock, eyes, gain: U.gain, par: p.par };
+  // Whirlpools never overlap: every one can be undone now, and each eye sits exactly where it was laid.
+  const gaps = [];
+  for (let i = 0; i < st.length; i++) for (let j = i + 1; j < st.length; j++) gaps.push(Math.hypot(st[i].x - st[j].x, st[i].y - st[j].y) - st[i].r - st[j].r);
+  const eyes = st.map((t) => [t.x, t.y]);
+  return { st, eyes, gaps, gain: U.gain, par: p.par };
 });
 
 // ============================================================ Player A: first open, a few mistakes, then a clean solve
@@ -76,32 +76,39 @@ const cap = await A.page.textContent('[data-testid=caption]');
 log('first-open caption', cap);
 
 let P0 = await plan(A);
-const buriedIdx = P0.lock.findIndex((l) => !l);
+assert(P0.gaps.every((g) => g > 0.04), 'no two whirlpools overlap (clear gap between every pair)');
 const firstTouchMs = Date.now() - A.t0;
-if (buriedIdx >= 0) {
-  const t = P0.st[buriedIdx];
-  await stir(A, P0.eyes[buriedIdx], t.r, -t.s / P0.gain);
+{
+  // A stir on calm water, well away from every eye -> ⬜ miss.
+  let spot = [0.5, 0.5];
+  for (let k = 0; k < 400; k++) {
+    const c = [0.12 + ((k * 0.618) % 1) * 0.76, 0.12 + ((k * 0.382 + 0.3) % 1) * 0.76];
+    if (P0.eyes.every((e) => Math.hypot(e[0] - c[0], e[1] - c[1]) > 0.2)) { spot = c; break; }
+  }
+  await stir(A, spot, 0.2, 3.6 / P0.gain);
   const s = await state(A);
-  log('stirred a buried whirlpool', s.v);
-  assert(s.v.kind === 'buried', 'a buried whirlpool bounces back as 🟨');
+  log('stirred calm water', s.v);
+  assert(s.v.kind === 'miss', 'a stir away from every eye reads as ⬜ miss');
   await A.page.waitForTimeout(250);
-  await shot(A, '02-buried.png');
+  await shot(A, '02-miss.png');
 }
 log('first committed twist at ms after open', Date.now() - A.t0);
 assert(Date.now() - A.t0 < 10000, 'first play happens within 10 s of opening (no tutorial)');
 // An under-twist on the right whirlpool -> close / "twist further".
 P0 = await plan(A);
-let top = P0.lock.lastIndexOf(true);
+let top = P0.st.length - 1;
 await stir(A, P0.eyes[top], P0.st[top].r, (-P0.st[top].s / P0.gain) * 0.45);
 let s = await state(A);
 log('under-twist', s.v);
 assert(s.v.kind === 'close', 'an under-twist on the right whirlpool reads as 🟧 close');
-// Clean solve in canonical order.
+// Clean solve in a random order (order never matters).
 let midShot = false;
+const orderA = [];
 for (let guard = 0; guard < 10; guard++) {
   const P = await plan(A);
   if (!P.st.length) break;
-  const i = P.lock.lastIndexOf(true);
+  const i = Math.floor(Math.random() * P.st.length);
+  orderA.push(`${P.eyes[i][0].toFixed(2)},${P.eyes[i][1].toFixed(2)}`);
   const t = P.st[i];
   await stir(A, P.eyes[i], t.r, (-t.s / P.gain) * (0.94 + Math.random() * 0.1), { onMid: midShot ? undefined : async () => { await shot(A, '03-mid-twist.png'); midShot = true; } });
   s = await state(A);
@@ -110,7 +117,9 @@ for (let guard = 0; guard < 10; guard++) {
 }
 s = await state(A);
 log('final', s);
+log('solve order (random)', orderA.join(' → '));
 assert(s.mode === 'won', 'solved');
+assert(s.row === 'MC' + 'L'.repeat(P0.par), `every whirlpool locked first time in a random order (row ${s.row})`);
 await A.page.waitForTimeout(700);
 await shot(A, '05-solved.png');
 await A.page.waitForSelector('#sheet-results.open', { timeout: 6000 });
@@ -171,7 +180,7 @@ await shot(B, '07-challenge.png');
 for (let guard = 0; guard < 10; guard++) {
   const P = await plan(B);
   if (!P.st.length) break;
-  const i = P.lock.lastIndexOf(true);
+  const i = 0; // first whirlpool in the list each time (a different order from player A)
   await stir(B, P.eyes[i], P.st[i].r, -P.st[i].s / P.gain);
   if ((await state(B)).mode !== 'playing') break;
 }
@@ -193,12 +202,12 @@ const frames = [];
 V.cdp.on('Page.screencastFrame', async (f) => { frames.push({ data: f.data, t: f.metadata.timestamp }); try { await V.cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }); } catch {} });
 await V.cdp.send('Page.startScreencast', { format: 'jpeg', quality: 80, maxWidth: 780, maxHeight: 1688, everyNthFrame: 1 });
 await V.page.waitForTimeout(1800);
-{ const P = await plan(V); const b = P.lock.findIndex((l) => !l); if (b >= 0) await stir(V, P.eyes[b], P.st[b].r, -P.st[b].s / P.gain); }
+{ const P = await plan(V); await stir(V, P.eyes[0], P.st[0].r, (-P.st[0].s / P.gain) * 0.5); } // one 🟧 under-twist first
 await V.page.waitForTimeout(500);
 for (let guard = 0; guard < 10; guard++) {
   const P = await plan(V);
   if (!P.st.length) break;
-  const i = P.lock.lastIndexOf(true);
+  const i = P.st.length - 1;
   await stir(V, P.eyes[i], P.st[i].r, -P.st[i].s / P.gain);
   await V.page.waitForTimeout(350);
   if ((await state(V)).mode !== 'playing') break;

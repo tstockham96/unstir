@@ -1,12 +1,13 @@
-import { puzzleFor, optimalOrder, Puzzle } from '../core/puzzle';
+import { puzzleFor, solveOrder, Puzzle, PUZZLE_GEN } from '../core/puzzle';
 import { puzzleNumberFor, formatPuzzleDate, msUntilLocalMidnight, formatCountdown } from '../core/date';
 import { Twist } from '../core/twist';
 import { TOL, inverse, Verdict } from '../core/rules';
 import { crowdFor, percentile } from '../core/crowd';
-import { shareText, GLYPH, fmtTime, badge } from '../core/share';
+import { shareText, glyph, fmtTime, badge } from '../core/share';
 import { encodeChallenge, decodeChallenge, Challenge } from '../core/challenge';
 import { computeStats } from '../core/stats';
-import { createRenderer, Renderer } from '../game/renderer';
+import { createRenderer, Renderer, Flash } from '../game/renderer';
+import { drawGuide, GUIDE_SIZE } from '../game/guide';
 import { drawScene } from '../game/scenes';
 import { Session } from '../game/session';
 import * as sfx from '../game/audio';
@@ -21,7 +22,7 @@ const $ = <T extends HTMLElement = HTMLElement>(s: string) => document.querySele
 const ease = (t: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 3);
 
 type Mode = 'playing' | 'won' | 'lost' | 'replay';
-interface Fx { x: number; y: number; r: number; t0: number; dur: number; color: string; kind: 'ripple' | 'flash' | 'spark'; a?: number }
+interface Fx { x: number; y: number; r: number; t0: number; dur: number; color: string; kind: 'ripple' | 'flash' | 'spark' | 'guide'; a?: number }
 
 export function startApp() {
   const params = new URLSearchParams(location.search);
@@ -41,6 +42,8 @@ export function startApp() {
   const renderer: Renderer = createRenderer(gl);
   const pic = document.createElement('canvas');
   pic.width = pic.height = 1024;
+  const guideCv = document.createElement('canvas');
+  guideCv.width = guideCv.height = GUIDE_SIZE;
 
   let css = 340;
   let dpr = 1;
@@ -78,17 +81,19 @@ export function startApp() {
       session.row = done.row;
       session.finishedSecs = done.secs || 1;
       if (!done.solved) session.removed.clear();
-    } else if (prog && prog.n === n) {
+    } else if (prog && prog.n === n && prog.gen === PUZZLE_GEN) {
       prog.removed.forEach((i) => session.removed.add(i));
       session.row = prog.row;
       session.elapsedBefore = prog.elapsed;
     }
     drawScene(pic.getContext('2d')!, p.scene, p.palette, 1024);
-    renderer.setPicture(pic);
+    drawGuide(guideCv.getContext('2d')!, p.guide, p.palette);
+    renderer.setPicture(pic, guideCv);
     $('[data-testid=sub]').textContent = `#${n} · ${formatPuzzleDate(n)} · ${p.tier.name}`;
     $('[data-testid=title-card]').classList.add('hidden');
     $('#frame').classList.remove('win');
     glow = 0;
+    wonAt = 0;
     preview = null;
     mode = done ? (done.solved ? 'won' : 'lost') : 'playing';
     if (mode === 'lost') session.removed.clear();
@@ -106,7 +111,7 @@ export function startApp() {
 
   function persist() {
     if (mode !== 'playing') return;
-    store.progress = { n: p.n, removed: [...session.removed], row: session.row, startedAt: session.startedAt, elapsed: session.secs() * 1000 };
+    store.progress = { n: p.n, gen: PUZZLE_GEN, removed: [...session.removed], row: session.row, startedAt: session.startedAt, elapsed: session.secs() * 1000 };
     save();
   }
 
@@ -117,6 +122,7 @@ export function startApp() {
     if (store.progress?.n === p.n) delete store.progress;
     save();
     if (solved) {
+      wonAt = performance.now();
       sfx.fanfare();
       buzz([20, 60, 20, 60, 40]);
       const f = $('#frame');
@@ -235,6 +241,7 @@ export function startApp() {
           preview = null;
           anim = null;
           fx.push({ kind: 'flash', x: target.x, y: target.y, r: target.r, t0: performance.now(), dur: 520, color: '255,248,236' });
+          fx.push({ kind: 'guide', x: target.x, y: target.y, r: target.r, t0: performance.now(), dur: 650, color: '' });
           fx.push({ kind: 'ripple', x: target.x, y: target.y, r: target.r * 1.1, t0: performance.now(), dur: 700, color: 'rgba(255,201,74,0.95)' });
           fx.push({ kind: 'ripple', x: target.x, y: target.y, r: target.r * 1.5, t0: performance.now() + 90, dur: 800, color: 'rgba(255,201,74,0.5)' });
           sfx.chime(session.locks - 1);
@@ -254,17 +261,13 @@ export function startApp() {
         const hints: Record<string, string> = { eye: 'Right whirlpool — find its exact eye', more: 'Right whirlpool — twist further', less: 'Right whirlpool — not so far', wider: 'Right whirlpool — stir wider', tighter: 'Right whirlpool — stir tighter', direction: 'Right whirlpool — other way round!' };
         toast(hints[v.hint], 'C');
         fx.push({ kind: 'ripple', x: u.x, y: u.y, r: 0.12, t0, dur: 500, color: 'rgba(255,154,60,0.9)' });
-      } else if (v.kind === 'buried') {
-        sfx.bloop();
-        buzz(30);
-        f.classList.add('wobble');
-        toast('That whirlpool is buried under another one', 'B');
-        fx.push({ kind: 'ripple', x: u.x, y: u.y, r: 0.12, t0, dur: 600, color: 'rgba(255,216,74,0.9)' });
+        // Light up the guide lines under YOUR stir (centred on your thumb, not the answer) so you can re-read the swirl.
+        fx.push({ kind: 'guide', x: u.x, y: u.y, r: Math.max(u.r, 0.16), t0, dur: 900, color: '' });
       } else {
         sfx.thud();
         buzz(12);
         f.classList.add('shake');
-        toast('Nothing was stirred there', 'M');
+        toast('No whirlpool eye there — look where the lines curl', 'M');
       }
     }
     caption();
@@ -279,7 +282,7 @@ export function startApp() {
       for (let i = 0; i < k; i++) segs.push({ kind: 'stir', i, dur: 750 });
       segs.push({ kind: 'hold', i: -2, dur: 500 });
     }
-    for (const i of optimalOrder(p.twists)) if (!session.removed.has(i) || !fromCurrent) segs.push({ kind: 'unstir', i, dur: 800 });
+    for (const i of solveOrder(p.twists)) if (!session.removed.has(i) || !fromCurrent) segs.push({ kind: 'unstir', i, dur: 800 });
     segs.push({ kind: 'hold', i: -3, dur: 450 });
     mode = mode === 'replay' ? mode : mode;
     const prevMode = mode;
@@ -353,9 +356,28 @@ export function startApp() {
       list = mode === 'won' || mode === 'lost' ? [] : session.stack;
       if (preview) list = [...list, preview];
     }
-    renderer.draw(list, glow);
+    renderer.draw(list, glow, guideFlash(now), mode === 'won' || mode === 'lost' ? 1 - glowFade(now) : 1);
     drawOverlay(now, marks);
     requestAnimationFrame(frame);
+  }
+  // After a solve the guide lines fade out so the clean picture gets its moment.
+  let wonAt = 0;
+  function glowFade(now: number): number {
+    if (!wonAt) return 1;
+    return Math.min(1, Math.max(0, (now - wonAt) / 900));
+  }
+  /** The strongest active guide flash (after a twist lands), or the soft highlight under a live stir. */
+  function guideFlash(now: number): Flash | null {
+    let best: Flash | null = null;
+    for (const f of fx) {
+      if (f.kind !== 'guide') continue;
+      const t = (now - f.t0) / f.dur;
+      if (t < 0 || t >= 1) continue;
+      const a = Math.sin(Math.PI * Math.min(1, t * 1.6)) * (1 - t * 0.4);
+      if (!best || a > best.a) best = { x: f.x, y: f.y, r: f.r * 1.05, a };
+    }
+    if (!best && g && preview) best = { x: preview.x, y: preview.y, r: preview.r, a: 0.35 };
+    return best;
   }
   const springE = (t: number) => (t >= 1 ? 1 : 1 - Math.cos(t * Math.PI * 2.5) * Math.exp(-5 * t));
 
@@ -401,6 +423,7 @@ export function startApp() {
       const t = (now - f.t0) / f.dur;
       if (t < 0) continue;
       if (t >= 1) { fx.splice(i, 1); continue; }
+      if (f.kind === 'guide') continue; // drawn by the renderer
       if (f.kind === 'ripple') {
         octx.strokeStyle = f.color;
         octx.globalAlpha = 1 - t;
@@ -495,7 +518,7 @@ export function startApp() {
     const left = p.twists.length - session.locks;
     if (mode === 'won') c.innerHTML = `Unstirred in <b>${session.row.length}</b> twists.`;
     else if (mode === 'lost') c.innerHTML = 'Out of twists — the water settled.';
-    else if (session.row.length === 0) c.innerHTML = 'Hidden whirlpools stirred this picture. <b>Press a whirlpool’s eye and circle your thumb</b> to untwist it.';
+    else if (session.row.length === 0) c.innerHTML = 'The fine lines were straight. Wherever they curl, a whirlpool stirred the picture. <b>Press its eye and circle your thumb</b> to untwist it.';
     else c.innerHTML = `<b>${left}</b> whirlpool${left === 1 ? '' : 's'} left · ${p.maxTwists - session.row.length} twists in hand`;
   }
   let toastTimer = 0;
@@ -566,14 +589,14 @@ export function startApp() {
     if (challenge && challenge.n === p.n) {
       const me = solved ? row.length : 99, them = challenge.solved ? challenge.row.length : 99;
       const verdict = me < them ? 'You win! 🏆' : me > them ? `${esc(challenge.by || 'They')} wins this one` : 'Dead heat 🤝';
-      vs = `<div class="card" data-testid="vs"><h3>Challenge</h3><div class="vs"><div><b>${solved ? row.length : '✕'}</b><small>You</small><div class="r">${[...row].map((c) => GLYPH[c]).join('')}</div></div><div>vs</div><div><b>${challenge.solved ? challenge.row.length : '✕'}</b><small>${esc(challenge.by || 'Friend')}</small><div class="r">${[...challenge.row].map((c) => GLYPH[c]).join('')}</div></div></div><p class="big-line" style="text-align:center;margin:10px 0 0"><b>${verdict}</b></p></div>`;
+      vs = `<div class="card" data-testid="vs"><h3>Challenge</h3><div class="vs"><div><b>${solved ? row.length : '✕'}</b><small>You</small><div class="r">${[...row].map(glyph).join('')}</div></div><div>vs</div><div><b>${challenge.solved ? challenge.row.length : '✕'}</b><small>${esc(challenge.by || 'Friend')}</small><div class="r">${[...challenge.row].map(glyph).join('')}</div></div></div><p class="big-line" style="text-align:center;margin:10px 0 0"><b>${verdict}</b></p></div>`;
     }
     el.innerHTML = `<div class="grab"></div><button class="icon x" data-close>✕</button>
       <div class="kicker">${solved ? 'UNSTIRRED' : 'STILL STIRRED'} · #${p.n} · ${p.tier.name.toUpperCase()}</div>
       <div class="pic-title">${p.sceneName}</div>
       <div class="score"><div><b data-testid="moves">${solved ? row.length : '✕'}</b><small>Twists</small></div><div><b>${p.par}</b><small>Par</small></div><div><b>${fmtTime(secs)}</b><small>Time</small></div></div>
       <span class="badge" data-testid="badge">${badge(row.length, p.par, solved)}</span>
-      <div class="row" data-testid="row">${[...row].map((c) => GLYPH[c]).join('')}</div>
+      <div class="row" data-testid="row">${[...row].map(glyph).join('')}</div>
       <div class="actions"><button class="btn primary" data-testid="share">Share</button><button class="btn ghost" data-testid="challenge">Challenge</button></div>
       <input class="name-in hidden" data-testid="name" maxlength="16" placeholder="Your name (shown to your friend)" value="${esc(store.name)}" />
       <pre class="hidden" data-testid="share-preview"></pre>
@@ -643,12 +666,12 @@ export function startApp() {
     el.innerHTML = `<div class="grab"></div><button class="icon x" data-close>✕</button><div class="kicker">HOW TO PLAY</div>
       <div class="pic-title" style="font-size:24px">Unstir today’s picture</div>
       <ul class="help-list">
-        <li><span class="n">1</span><span>Hidden whirlpools stirred the picture, one after another.</span></li>
-        <li><span class="n">2</span><span><b>Press a whirlpool’s eye</b>, then <b>circle your thumb</b> against the swirl. Stir wide for big whirlpools, tight for small ones.</span></li>
-        <li><span class="n">3</span><span>Get the eye, size and amount right and it <b>snaps clean</b>. Whirlpools lying under another can’t be undone until the top one is gone.</span></li>
+        <li><span class="n">1</span><span>Hidden whirlpools stirred the picture. The fine guide lines were perfectly straight, so <b>wherever they curl, there’s a whirlpool</b>.</span></li>
+        <li><span class="n">2</span><span><b>Press the eye</b> (where the lines spiral tightest), then <b>circle your thumb</b> against the swirl. Stir wide for big whirlpools, tight for small ones.</span></li>
+        <li><span class="n">3</span><span>Get the eye, size and amount right and it <b>snaps clean</b>. Whirlpools never touch, so <b>undo them in any order</b>.</span></li>
         <li><span class="n">4</span><span>Every twist counts. Match par for a flawless day.</span></li>
       </ul>
-      <div class="card legend"><span>🌀 unstirred</span><span>🟧 right whirlpool, not quite</span><span>🟨 buried under another</span><span>⬜ nothing there</span></div>
+      <div class="card legend"><span>🌀 unstirred</span><span>🟧 right whirlpool, not quite</span><span>⬜ nothing there</span></div>
       <p class="caption">A new picture every day at midnight. Monday is a ripple; Sunday is a storm.</p>`;
     el.querySelector('[data-close]')!.addEventListener('click', closeSheets);
   }

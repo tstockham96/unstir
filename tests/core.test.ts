@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { twistPoint, sourceOf, lockable, mess, type Twist, type Vec } from '../src/core/twist';
+import { twistPoint, sourceOf, gapBetween, mess, type Twist, type Vec } from '../src/core/twist';
 import { judge, inverse, cancels, TOL } from '../src/core/rules';
-import { puzzleFor, optimalOrder, orderClarity, TIERS } from '../src/core/puzzle';
-import { shareText, badge, fmtTime } from '../src/core/share';
+import { puzzleFor, solveOrder, problems, TIERS } from '../src/core/puzzle';
+import { shareText, badge, fmtTime, GLYPH } from '../src/core/share';
 import { encodeChallenge, decodeChallenge } from '../src/core/challenge';
 import { computeStats, type DayResult } from '../src/core/stats';
 import { crowdFor, percentile } from '../src/core/crowd';
 import { simulate, MODELS } from '../src/core/players';
-import { dateForPuzzle, puzzleNumberFor } from '../src/core/date';
+import { dateForPuzzle, puzzleNumberFor, formatPuzzleDate } from '../src/core/date';
 import { SCENES } from '../src/core/scenes-meta';
 
 const T1: Twist = { x: 0.5, y: 0.5, r: 0.3, s: 4 };
@@ -43,28 +43,37 @@ describe('twist geometry', () => {
     expect(mess([]).mean).toBe(0);
     expect(mess([T1]).mean).toBeGreaterThan(0.01);
   });
-  it('lockable: only whirlpools with no later overlapping disk', () => {
+  it('overlapping whirlpools do NOT commute; separated ones do (why the game keeps them apart)', () => {
     const a: Twist = { x: 0.3, y: 0.3, r: 0.2, s: 3 };
-    const b: Twist = { x: 0.4, y: 0.35, r: 0.2, s: -3 }; // overlaps a, on top
-    const c: Twist = { x: 0.85, y: 0.85, r: 0.1, s: 2 }; // alone
-    expect(lockable([a, b, c])).toEqual([1, 2]);
-    expect(lockable([a])).toEqual([0]);
+    const b: Twist = { x: 0.4, y: 0.35, r: 0.2, s: -3 }; // overlaps a
+    const c: Twist = { x: 0.8, y: 0.8, r: 0.15, s: 2 }; // clear of a
+    expect(gapBetween(a, b)).toBeLessThan(0);
+    expect(gapBetween(a, c)).toBeGreaterThan(0);
+    const d = (h: Twist[], g: Twist[]) => { const [x1, y1] = sourceOf(h, 0.38, 0.33); const [x2, y2] = sourceOf(g, 0.38, 0.33); return Math.hypot(x1 - x2, y1 - y2); };
+    expect(d([a, b], [b, a])).toBeGreaterThan(0.01);
+    for (let i = 0; i < 100; i++) {
+      const px = (i % 10) / 9, py = Math.floor(i / 10) / 9;
+      const [x1, y1] = sourceOf([a, c], px, py);
+      const [x2, y2] = sourceOf([c, a], px, py);
+      expect(Math.hypot(x1 - x2, y1 - y2)).toBeLessThan(1e-12);
+    }
   });
 });
 
 describe('judging a twist', () => {
-  const a: Twist = { x: 0.3, y: 0.3, r: 0.2, s: 3 };
-  const b: Twist = { x: 0.4, y: 0.35, r: 0.2, s: -3 };
+  const a: Twist = { x: 0.3, y: 0.3, r: 0.2, s: 3.5 };
+  const b: Twist = { x: 0.75, y: 0.7, r: 0.2, s: -4 }; // separate from a (no overlap)
   const stack = [a, b];
-  it('the exact inverse of the top whirlpool locks', () => {
+  it('the exact inverse of EITHER whirlpool locks (no order)', () => {
     expect(judge(stack, inverse(b))).toEqual({ kind: 'lock', index: 1 });
+    expect(judge(stack, inverse(a))).toEqual({ kind: 'lock', index: 0 });
   });
   it('slightly imprecise but within tolerance still locks', () => {
     expect(judge(stack, { x: b.x + TOL.eye * 0.7, y: b.y, r: b.r * 1.2, s: -b.s * 1.15 })).toEqual({ kind: 'lock', index: 1 });
   });
   it('under-twist reads close/more, over-twist close/less, wrong way close/direction', () => {
-    expect(judge(stack, { ...inverse(b), s: 1.2 })).toMatchObject({ kind: 'close', hint: 'more' });
-    expect(judge(stack, { ...inverse(b), s: 6 })).toMatchObject({ kind: 'close', hint: 'less' });
+    expect(judge(stack, { ...inverse(b), s: 1.5 })).toMatchObject({ kind: 'close', hint: 'more' });
+    expect(judge(stack, { ...inverse(b), s: 7 })).toMatchObject({ kind: 'close', hint: 'less' });
     expect(judge(stack, { ...inverse(b), s: -2.5 })).toMatchObject({ kind: 'close', hint: 'direction' });
   });
   it('size and eye errors give wider/tighter/eye hints', () => {
@@ -72,11 +81,17 @@ describe('judging a twist', () => {
     expect(judge(stack, { ...inverse(b), r: 0.35 })).toMatchObject({ kind: 'close', hint: 'tighter' });
     expect(judge(stack, { ...inverse(b), x: b.x + 0.07 })).toMatchObject({ kind: 'close', hint: 'eye' });
   });
-  it('aiming at a buried whirlpool says buried', () => {
-    expect(judge([a, { x: 0.45, y: 0.3, r: 0.22, s: 2 }], inverse(a)).kind).toBe('buried');
+  it('the eye tolerance is forgiving (a thumb-width) but meaningful', () => {
+    expect(TOL.eye).toBeGreaterThanOrEqual(0.04);
+    expect(TOL.eye).toBeLessThanOrEqual(0.06);
+    expect(judge(stack, { ...inverse(a), x: a.x + TOL.eye * 0.95 }).kind).toBe('lock');
+    expect(judge(stack, { ...inverse(a), x: a.x + TOL.eye * 1.2 }).kind).toBe('close');
   });
-  it('twisting empty water is a miss', () => {
-    expect(judge(stack, { x: 0.9, y: 0.9, r: 0.1, s: 3 })).toEqual({ kind: 'miss' });
+  it('twisting calm water is a miss; there is no "buried" verdict any more', () => {
+    expect(judge(stack, { x: 0.9, y: 0.1, r: 0.1, s: 3 })).toEqual({ kind: 'miss' });
+    const kinds = new Set<string>();
+    for (let i = 0; i < 400; i++) kinds.add(judge(stack, { x: (i % 20) / 19, y: Math.floor(i / 20) / 19, r: 0.2, s: -3.5 }).kind);
+    expect([...kinds].every((k) => ['lock', 'close', 'miss'].includes(k))).toBe(true);
   });
   it('cancels() requires the opposite direction', () => {
     expect(cancels(a, inverse(a))).toBe(true);
@@ -97,39 +112,40 @@ describe('daily puzzles', () => {
     for (let n = 1; n <= 30; n++) seen.add(JSON.stringify(puzzleFor(n).twists));
     expect(seen.size).toBe(30);
   });
-  it('tier follows the weekday (Mon gentle → Sun storm); #1 is Fri Oct 2 2026', () => {
+  it('tier follows the weekday (Mon 2 whirlpools → weekend 5); #1 is Fri Oct 2 2026', () => {
     expect(dateForPuzzle(1).toISOString().slice(0, 10)).toBe('2026-10-02');
     expect(puzzleNumberFor(new Date(2026, 9, 2, 12))).toBe(1);
+    const counts: Record<string, number> = {};
     for (let n = 1; n <= 14; n++) {
       const p = puzzleFor(n);
       const tier = TIERS[dateForPuzzle(n).getUTCDay()];
       expect(p.tier.name).toBe(tier.name);
-      expect(p.twists.length).toBe(tier.nest + tier.free + 1);
+      expect(p.twists.length).toBe(tier.count);
       expect(p.par).toBe(p.twists.length);
       expect(p.maxTwists).toBe(p.par + 6);
+      counts[formatPuzzleDate(n).slice(0, 3)] = p.par;
     }
+    expect(counts).toEqual({ MON: 2, TUE: 3, WED: 3, THU: 4, FRI: 4, SAT: 5, SUN: 5 });
   });
-  it('every day for 60 days is solvable in exactly par by cancelling in optimal order', () => {
+  it('every day for 60 days: separated, strong, big enough, and solvable in par in two different orders', () => {
     for (let n = 1; n <= 60; n++) {
       const p = puzzleFor(n);
-      const order = optimalOrder(p.twists);
-      expect(new Set(order).size).toBe(p.par);
-      const stack = p.twists.map((t, i) => ({ t, i }));
-      let moves = 0;
-      for (const idx of order) {
-        const v = judge(stack.map((s) => s.t), inverse(p.twists[idx]));
-        expect(v.kind).toBe('lock');
-        if (v.kind === 'lock') stack.splice(v.index, 1);
-        moves++;
+      expect(problems(p.twists, p.tier)).toBe('');
+      for (const order of [solveOrder(p.twists), solveOrder(p.twists).reverse()]) {
+        let stack = p.twists.slice();
+        for (const idx of order) {
+          const v = judge(stack, inverse(p.twists[idx]));
+          expect(v.kind).toBe('lock');
+          if (v.kind === 'lock') stack = stack.filter((_, k) => k !== v.index);
+        }
+        expect(stack.length).toBe(0);
       }
-      expect(stack.length).toBe(0);
-      expect(moves).toBe(p.par);
-      // and the picture is physically restored: scramble followed by the player's inverse twists is the identity
+      // the picture is physically restored: scramble followed by the player's inverse twists is the identity
       expect(mess(p.twists).mean).toBeGreaterThan(0.005);
-      const hist = [...p.twists, ...order.map((i) => inverse(p.twists[i]))];
+      const hist = [...p.twists, ...solveOrder(p.twists).reverse().map((i) => inverse(p.twists[i]))];
       for (let k = 0; k < 64; k++) {
-        const px = 0.05 + 0.9 * ((k * 37) % 64) / 63;
-        const py = 0.05 + 0.9 * ((k * 11) % 64) / 63;
+        const px = 0.05 + (0.9 * ((k * 37) % 64)) / 63;
+        const py = 0.05 + (0.9 * ((k * 11) % 64)) / 63;
         const [sx, sy] = sourceOf(hist, px, py);
         expect(Math.hypot(sx - px, sy - py)).toBeLessThan(1e-6);
       }
@@ -137,14 +153,24 @@ describe('daily puzzles', () => {
   });
   it('par is a lower bound: each lock removes exactly one whirlpool', () => {
     const p = puzzleFor(3);
-    const free = lockable(p.twists);
-    expect(free.length).toBeLessThan(p.twists.length); // some whirlpool is buried at the start
+    const v = judge(p.twists, inverse(p.twists[0]));
+    expect(v.kind).toBe('lock');
+    expect(p.twists.filter((t) => cancels(t, inverse(p.twists[0]))).length).toBe(1);
   });
-  it('order is readable: the top whirlpool always helps the picture clearly more than a buried one', () => {
-    for (let n = 1; n <= 21; n++) expect(orderClarity(puzzleFor(n).twists)).toBeGreaterThanOrEqual(1.3);
+  it('each day picks a guide pattern; harder days always get the square grid', () => {
+    const kinds = new Set<string>();
+    for (let n = 1; n <= 60; n++) {
+      const p = puzzleFor(n);
+      expect(['grid', 'stripes', 'dots']).toContain(p.guide.kind);
+      expect(p.guide.step).toBeGreaterThan(0.03);
+      expect(p.guide.step).toBeLessThan(0.07);
+      if (p.par >= 4) expect(p.guide.kind).toBe('grid');
+      kinds.add(p.guide.kind);
+    }
+    expect(kinds.size).toBe(3);
   });
   it('the picture is visibly stirred at the start of every day', () => {
-    for (let n = 1; n <= 14; n++) expect(mess(puzzleFor(n).twists).restored).toBeLessThan(0.9);
+    for (let n = 1; n <= 14; n++) expect(mess(puzzleFor(n).twists).restored).toBeLessThan(0.8);
   });
   it('cycles through every scene within 14 days', () => {
     const s = new Set<number>();
@@ -155,7 +181,7 @@ describe('daily puzzles', () => {
 
 describe('share text', () => {
   const p = puzzleFor(1);
-  const txt = shareText(p, 'BCLLLL', true, 83, 'https://unstir.app/#c=abc', 3);
+  const txt = shareText(p, 'MCLLLL', true, 83, 'https://unstir.app/#c=abc', 3);
   it('is spoiler-free: no coordinates, no picture name', () => {
     expect(txt).not.toMatch(/0\.\d{2,}/);
     expect(txt.toLowerCase()).not.toContain(p.sceneName.toLowerCase());
@@ -164,7 +190,9 @@ describe('share text', () => {
   it('shows score, badge, emoji row, time, streak and link', () => {
     expect(txt).toContain(`UNSTIR #1`);
     expect(txt).toContain(`6/${p.par}`);
-    expect(txt).toContain('🟨🟧🌀🌀🌀🌀');
+    expect(txt).toContain('⬜🟧🌀🌀🌀🌀');
+    expect(txt).not.toContain('🟨');
+    expect(Object.values(GLYPH)).toEqual(['🌀', '🟧', '⬜']);
     expect(txt).toContain('1:23');
     expect(txt).toContain('🔥3');
     expect(txt).toContain('https://unstir.app/#c=abc');
@@ -179,8 +207,10 @@ describe('share text', () => {
 
 describe('challenge links', () => {
   it('round-trips, including unicode names', () => {
-    const c = { n: 12, row: 'BCLLL', solved: true, secs: 74, by: 'Zoë 🌀' };
+    const c = { n: 12, row: 'MCLLL', solved: true, secs: 74, by: 'Zoë 🌀' };
     expect(decodeChallenge(encodeChallenge(c))).toEqual(c);
+    // links made before the 🟨 state was retired still open; a legacy B shows as a miss
+    expect(decodeChallenge(encodeChallenge({ ...c, row: 'BCLLL' }))!.row).toBe('MCLLL');
   });
   it('rejects garbage', () => {
     expect(decodeChallenge('')).toBeNull();
@@ -229,7 +259,7 @@ describe('simulated crowd & players', () => {
     for (let i = 1; i < vals.length; i++) expect(vals[i]).toBeLessThanOrEqual(vals[i - 1]);
     expect(percentile(c, p.par, 0, false)).toBeLessThanOrEqual(vals[6]);
   });
-  it('skill gradient: experts beat novices; random tapping never solves', () => {
+  it('skill gradient: experts beat novices; random tapping never solves; hint-guided jabbing almost never does', () => {
     const p = puzzleFor(5);
     const avg = (m: keyof typeof MODELS) => {
       let s = 0;
@@ -245,5 +275,18 @@ describe('simulated crowd & players', () => {
     const nov = avg('novice');
     expect(ex.mean).toBeLessThan(nov.mean - 1);
     expect(avg('tapper').solved).toBe(0);
+  });
+  it('brute force stays in check even on the easiest (Monday) puzzles', () => {
+    for (const n of [4, 11, 18, 25]) {
+      const p = puzzleFor(n);
+      expect(p.par).toBe(2);
+      let jab = 0, tap = 0;
+      for (let i = 0; i < 300; i++) {
+        if (simulate(p, MODELS.jabber, i).solved) jab++;
+        if (simulate(p, MODELS.tapper, i).solved) tap++;
+      }
+      expect(jab / 300).toBeLessThan(0.04);
+      expect(tap / 300).toBeLessThan(0.01);
+    }
   });
 });

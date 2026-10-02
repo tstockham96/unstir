@@ -51,22 +51,9 @@ export function overlaps(a: Twist, b: Twist): boolean {
   return Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r;
 }
 
-/** Indices that can be undone now: no LATER twist overlaps them. */
-export function lockable(history: readonly Twist[]): number[] {
-  const out: number[] = [];
-  for (let i = 0; i < history.length; i++) {
-    let free = true;
-    for (let j = i + 1; j < history.length && free; j++) if (overlaps(history[i], history[j])) free = false;
-    if (free) out.push(i);
-  }
-  return out;
-}
-
-/** Where twist i's eye APPEARS now: carried forward by every later twist. */
-export function apparentEye(history: readonly Twist[], i: number): Vec {
-  const o: Vec = [history[i].x, history[i].y];
-  for (let j = i + 1; j < history.length; j++) twistPoint(history[j], o[0], o[1], 1, o);
-  return o;
+/** Clear water between two whirlpools' full influence disks (negative = they overlap). */
+export function gapBetween(a: Twist, b: Twist): number {
+  return Math.hypot(a.x - b.x, a.y - b.y) - a.r - b.r;
 }
 
 /** Mean displacement and share of sample points within `tol` of home, over a G x G grid. */

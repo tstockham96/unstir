@@ -2,6 +2,7 @@ import type { DayResult } from '../core/stats';
 
 export interface Progress {
   n: number;
+  gen?: number; // puzzle generator version; progress from an older generator is discarded
   removed: number[]; // scramble indices already cancelled
   row: string;
   startedAt: number;

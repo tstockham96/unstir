@@ -1,6 +1,8 @@
 import type { Puzzle } from './puzzle';
 
-export const GLYPH: Record<string, string> = { L: '🌀', C: '🟧', B: '🟨', M: '⬜' };
+export const GLYPH: Record<string, string> = { L: '🌀', C: '🟧', M: '⬜' };
+/** Emoji for one twist. Anything unknown (e.g. a legacy result) shows as ⬜. */
+export const glyph = (c: string): string => GLYPH[c] ?? '⬜';
 
 export function fmtTime(secs: number): string {
   const s = Math.max(0, Math.round(secs));
@@ -20,7 +22,7 @@ export function shareText(p: Puzzle, row: string, solved: boolean, secs: number,
   const lines = [
     `UNSTIR #${p.n} · ${p.tier.name}`,
     `${score} twists · ${badge(moves, p.par, solved)} · ${fmtTime(secs)}${streak > 1 ? ` · 🔥${streak}` : ''}`,
-    [...row].map((c) => GLYPH[c] ?? '⬜').join(''),
+    [...row].map(glyph).join(''),
   ];
   if (link) lines.push(link);
   return lines.join('\n');

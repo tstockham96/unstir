@@ -1,7 +1,7 @@
 /** Friend challenge links: `#c=<code>`. The code carries the puzzle number and the sender's result only. */
 export interface Challenge {
   n: number;
-  row: string; // L/C/B/M per twist
+  row: string; // L/C/M per twist
   solved: boolean;
   secs: number;
   by: string;
@@ -28,8 +28,9 @@ export function encodeChallenge(c: Challenge): string {
 export function decodeChallenge(code: string): Challenge | null {
   try {
     const [v, n, row, solved, secs, ...name] = unb64url(code).split('|');
+    // 'B' (the retired "buried" verdict) is still accepted from old links and shown as a miss.
     if (v !== '1' || !/^\d+$/.test(n) || !/^[LCBM]{0,40}$/.test(row)) return null;
-    return { n: Number(n), row, solved: solved === '1', secs: Number(secs) || 0, by: name.join('|').slice(0, 16) };
+    return { n: Number(n), row: row.replace(/B/g, 'M'), solved: solved === '1', secs: Number(secs) || 0, by: name.join('|').slice(0, 16) };
   } catch {
     return null;
   }

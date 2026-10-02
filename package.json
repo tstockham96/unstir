@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "verify": "node scripts/play.mjs",
-    "audit": "tsx scripts/audit.ts"
+    "audit": "tsx scripts/audit.ts",
+    "week": "node scripts/week.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

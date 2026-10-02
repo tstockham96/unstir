@@ -3,7 +3,18 @@
 **A daily picture has been stirred by hidden whirlpools. Press a whirlpool's eye and circle your thumb to stir it back.**
 
 Each whirlpool is a smooth twist (rotation angle `s·(1−d/r)²`), so it is area-preserving and exactly invertible.
-Whirlpools are laid down in order, and the ones on top have to come off first.
+
+**Whirlpools never overlap.** Their full influence disks are kept at least `GAP` = 0.05 board widths apart, so they commute:
+you can undo them in any order, and an eye always sits exactly where its swirl is centred.
+
+**A guide pattern makes the eyes findable.** Every puzzle overlays a crisp pattern that gets stirred along with the picture.
+It's a fine square grid, diagonal stripes (easy days only) or a dot lattice (Mondays only), drawn as thin semi-transparent palette lines.
+The lines started out straight, so wherever they curl there's a whirlpool, and the tightest spiral marks its eye. Nothing marks the centre directly.
+Generator guarantees (checked by `problems()` and `tests/solver.test.ts`):
+- radius ≥ 0.18 board widths (`MIN_R`, about 63 px on a 390 px phone)
+- twist at the eye ≥ 3.2 rad (`MIN_S`, about 183°)
+- eyes inside the board
+- eyes kept away from round or radial scene features such as suns, ray bursts and ripple rings, so they land on straight edges
 
 How a twist is measured:
 - Your thumb's circling angle × 1.6 sets the twist amount.
@@ -16,10 +27,13 @@ What you see when you let go:
 |---|---|
 | 🌀 | Locked. You cancelled a whirlpool and the picture snaps clean there. |
 | 🟧 | Right whirlpool, imprecise. You get a hint (more · less · wider · tighter · eye · other way). |
-| 🟨 | That whirlpool is buried under another one. |
-| ⬜ | Nothing stirred there. |
+| ⬜ | No whirlpool eye there. |
+
+Eye tolerance is 0.05 board widths (about 17 px). The guide lines under your thumb light up while you stir. After a 🟧 they flash around where *you* stirred (never around the answer), and after a 🌀 they flash around the area that just snapped clean.
 
 Par = the number of whirlpools. That's provably optimal, since each lock removes exactly one.
+Brute force stays in check. Two simulated "players" never look at the picture: a jabber that pokes random spots and then follows the 🟧 hints, and a random tapper.
+Even on Mondays they solve under 4% and under 1% of the time respectively (`npm test`, `npm run audit`).
 You get par + 6 twists before the picture "sets" and the replay shows the rest.
 
 Difficulty follows the weekday:
@@ -28,18 +42,21 @@ Difficulty follows the weekday:
 |---|---|---|---|---|---|---|
 | Ripple, 2 | Eddy, 3 | Current, 3 | Undertow, 4 | Maelstrom, 4 | Vortex, 5 | Storm, 5 |
 
+Harder days have more whirlpools, smaller radii (never below 0.18), a wider range of twist amounts, and eyes allowed nearer the edge.
+
 Puzzle #1 is Fri Oct 2 2026. Puzzles are deterministic per local day.
 
 ## Run
 ```bash
 npm install
 npm run dev          # http://localhost:5173
-npm test             # vitest: geometry, judging, determinism, 60-day solvability, share/challenge/stats/crowd
+npm test             # vitest: geometry, judging, determinism, 60-day solvability, 50-seed every-permutation solver, share/challenge/stats/crowd
 npm run typecheck
 npm run build        # dist/ (normal, hashed assets) + dist-single/index.html (one file, opens from disk)
 VITE_BASE=/unstir/ VITE_PUBLIC_URL=https://example.com/unstir/ npm run build   # sub-path deploy
 npm run verify       # Playwright e2e: 390x844 touch play → shots/*.png + shots/play.mp4 (needs /usr/bin/google-chrome + ffmpeg)
 npm run audit        # simulated players per day → shots/audit.json
+npm run week         # start-state screenshots for a week → shots/v2/v2-mon.png … v2-sun.png, v2-mid-twist.png, v2-solved.png
 ```
 URL flags:
 - `?reset` wipes local data.

@@ -7,3 +7,5 @@ shots/*.json
 .env
 .env.*
 !.env.example
+# Answer-overlay screenshots (true eyes drawn on), for local checking only
+shots/v2/check/

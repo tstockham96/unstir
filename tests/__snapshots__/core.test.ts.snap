@@ -1,3 +1,3 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`daily puzzles > is deterministic (same number, same puzzle) and stable across 30 days 1`] = `1936704759`;
+exports[`daily puzzles > is deterministic (same number, same puzzle) and stable across 30 days 1`] = `3875677592`;
